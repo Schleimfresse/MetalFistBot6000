@@ -37,7 +37,15 @@ func playAudio(v *discordgo.VoiceConnection, videoId string) error {
 			return
 		}
 	}(response.Body)
-	run := exec.Command("ffmpeg", "-i", "pipe:0", "-f", "s16le", "-ar", strconv.Itoa(frameRate), "-ac", strconv.Itoa(channels), "-b:a", "128k", "pipe:1")
+	run := exec.Command("ffmpeg",
+		"-i", "pipe:0", // Input from pipe
+		"-filter:a", "equalizer=f=500:width_type=h:width=200:g=1,equalizer=f=250:width_type=h:width=100:g=4,equalizer=f=125:width_type=h:width=50:g=4.8,equalizer=f=62:width_type=h:width=25:g=7",
+		"-f", "s16le", // Output format
+		"-ar", strconv.Itoa(frameRate), // Audio sample rate
+		"-ac", strconv.Itoa(channels), // Number of audio channels
+		"-b:a", "128k", // Audio bitrate
+		"pipe:1", // Output to pipe
+	)
 	run.Stdin = response.Body
 	stdout, err := run.StdoutPipe()
 	if err != nil {
