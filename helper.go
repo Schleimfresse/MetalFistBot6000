@@ -8,13 +8,6 @@ import (
 	"os"
 )
 
-const (
-	channels  int = 2                   // 1 for mono, 2 for stereo
-	frameRate int = 48000               // audio sampling rate
-	frameSize int = 960                 // uint16 size of each audio frame
-	maxBytes  int = (frameSize * 2) * 2 // max size of opus data
-)
-
 func botInVoiceChannel(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
 	guild, _ := s.State.Guild(i.GuildID)
 	botID := s.State.User.ID
@@ -61,9 +54,10 @@ func sendPCM(vc *discordgo.VoiceConnection, pcm <-chan []int16) error {
 		if !vc.Ready || vc.OpusSend == nil {
 			return fmt.Errorf("voice connection not ready")
 		}
-
 		// Send Opus data to Discord's voice connection
+
 		vc.OpusSend <- opus
+
 	}
 }
 

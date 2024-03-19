@@ -6,16 +6,32 @@ import (
 	"github.com/joho/godotenv"
 	"log"
 	"os"
+	"sync"
 )
 
 var (
-	TOKEN string
+	TOKEN    string
+	speaking bool
+	mu       sync.Mutex
 )
+
+func setSpeakingState(state bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	speaking = state
+}
+
+func getSpeakingState() bool {
+	mu.Lock()
+	defer mu.Unlock()
+	return speaking
+}
 
 func main() {
 	if err := godotenv.Load("./.env"); err != nil {
 		log.Fatal("Error loading .env file", err)
 	}
+
 	TOKEN = os.Getenv("TOKEN")
 
 	// Create a new Discord session
