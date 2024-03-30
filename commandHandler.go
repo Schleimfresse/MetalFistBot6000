@@ -5,7 +5,6 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/kkdai/youtube/v2"
 	"log"
-	"math/rand"
 	"regexp"
 	"strconv"
 	"time"
@@ -18,15 +17,19 @@ var (
 )
 
 type ytTrack struct {
-	title       string
-	streamUrl   string
-	duration    time.Duration
-	author      string
-	publishDate time.Time
+	title           string
+	streamUrl       string
+	duration        time.Duration
+	author          string
+	publishDate     time.Time
+	video           *youtube.Video
+	bitrate         int
+	audiosamplerate string
+	format          *youtube.Format
 }
 
 func playHandler(s *discordgo.Session, i *discordgo.InteractionCreate, playNext bool) {
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+	/*err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
 	})
 	if err != nil {
@@ -46,11 +49,17 @@ func playHandler(s *discordgo.Session, i *discordgo.InteractionCreate, playNext 
 		Timestamp: formattedTime,
 		Author:    &discordgo.MessageEmbedAuthor{Name: "MetalFistBot 6000", IconURL: avatarUrl},
 		Footer:    &discordgo.MessageEmbedFooter{Text: fmt.Sprint("Requested by ", i.Member.User.Username)},
-	}
+	}*/
 
 	guild, _ := s.State.Guild(i.GuildID)
 	for _, vs := range guild.VoiceStates {
 		if vs.UserID == i.Member.User.ID {
+			var bitrate int
+			for _, channel := range guild.Channels {
+				if channel.ID == vs.ChannelID {
+					bitrate = channel.Bitrate
+				}
+			}
 			var err error
 			connection, err = s.ChannelVoiceJoin(i.GuildID, vs.ChannelID, false, false)
 			if err != nil {
@@ -61,9 +70,13 @@ func playHandler(s *discordgo.Session, i *discordgo.InteractionCreate, playNext 
 			videoUrl := i.ApplicationCommandData().Options[0].StringValue()
 
 			if !ytRegex.MatchString(videoUrl) {
-				s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 					Content: "Please use a valid link",
 				})
+				if err != nil {
+					log.Println(err)
+					return
+				}
 				return
 			}
 
@@ -74,15 +87,19 @@ func playHandler(s *discordgo.Session, i *discordgo.InteractionCreate, playNext 
 				log.Println(err)
 			}
 
-			format := findBestAudioFormat(video.Formats)
+			format := findBestAudioFormat(video.Formats, bitrate)
 			if format == nil {
 				log.Fatal("No audio format found")
 			}
 
-			url, err := client.GetStreamURL(video, format)
-			track := ytTrack{title: video.Title, streamUrl: url, duration: video.Duration, author: video.Author, publishDate: video.PublishDate}
+			numInt, err := strconv.Atoi(format.ApproxDurationMs)
+			log.Println("END STATS: ", format.Bitrate, format.AverageBitrate, format.AudioSampleRate, numInt/1000)
 
-			if playNext {
+			url, err := client.GetStreamURL(video, format)
+
+			track := ytTrack{title: video.Title, streamUrl: url, duration: video.Duration, author: video.Author, publishDate: video.PublishDate, video: video, bitrate: format.Bitrate, audiosamplerate: format.AudioSampleRate, format: format}
+
+			/*if playNext {
 				insertIndex := 1
 				for i := len(queue) - 1; i > insertIndex; i-- {
 					queue[i] = queue[i-1]
@@ -100,29 +117,35 @@ func playHandler(s *discordgo.Session, i *discordgo.InteractionCreate, playNext 
 				if err != nil {
 					log.Println(err)
 					return
-				}
-				playTrack(s, i)
+				}*/
+			queue = append(queue, track)
+			playTrack(s, i)
+			/*} else {
+			if playNext {
+				embed.Description = fmt.Sprint("**", track.title, "** is playing next, requested ", i.Member.User.Username)
 			} else {
-				if playNext {
-					embed.Description = fmt.Sprint("**", track.title, "** is playing next, requested ", i.Member.User.Username)
-				} else {
-					embed.Description = fmt.Sprint("**", track.title, "** was added to the queue, by ", i.Member.User.Username)
-				}
-				_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-					Embeds: []*discordgo.MessageEmbed{embed},
-				})
-				if err != nil {
-					log.Println(err)
-					return
-				}
+				embed.Description = fmt.Sprint("**", track.title, "** was added to the queue, by ", i.Member.User.Username)
 			}
-			return
+			_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+				Embeds: []*discordgo.MessageEmbed{embed},
+			})
+			if err != nil {
+				log.Println(err)
+				return
+			}*/
 		}
+		connection.Close()
+		return
 	}
+	/*}
 
-	s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Content: "You need to be in a voice channel to use this command!",
 	})
+	if err != nil {
+		log.Println(err)
+		return
+	}*/
 }
 
 var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.InteractionCreate){
@@ -153,7 +176,7 @@ var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.Interac
 
 	},
 	"pause": func(s *discordgo.Session, i *discordgo.InteractionCreate) {},
-	"shuffle": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	/*"shuffle": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		currentlyPlaying := queue[0]
 		remainingQueue := queue[1:]
 
@@ -214,9 +237,12 @@ var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.Interac
 		}
 		if len(queue) <= 0 {
 			embed.Description = "Queue is empty."
-			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 				Embeds: []*discordgo.MessageEmbed{embed},
 			})
+			if err != nil {
+				return
+			}
 		} else {
 			page := 1
 			start := (page - 1) * 10
@@ -280,47 +306,105 @@ var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.Interac
 					log.Printf("Error responding to button click: %s", err)
 				}
 			}*/
-		}
-	},
-	"nowplaying": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	/*	}
+			},
+			"nowplaying": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+				guild, _ := s.State.Guild(i.GuildID)
 
-	},
-	"leave": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		if connection != nil && botInVoiceChannel(s, i) {
-			err := connection.Disconnect()
-			if err != nil {
-				log.Println("could not disconnect:", err)
-			}
-			connection = nil
-		}
-	},
-	"skip": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		if len(queue) == 0 {
-			s.ChannelMessageSend(i.ChannelID, "There are no tracks currently playing.")
-			return
-		}
+				for _, vs := range guild.VoiceStates {
+					if vs.UserID == i.Member.User.ID {
+						connection, _ = s.ChannelVoiceJoin(i.GuildID, vs.ChannelID, false, false)
+						const Folder = "C:/Users/linus/Music/Hardtekk & Sped Up"
+						fmt.Println("Reading Folder: ", Folder)
+						files, _ := ioutil.ReadDir(Folder)
+						for _, f := range files {
+							fmt.Println("PlayAudioFile:", f.Name())
+							dgvoice.PlayAudioFile(connection, fmt.Sprintf("%s/%s", Folder, f.Name()), make(chan bool))
+						}
+					}
+				}
+			},
+			"leave": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+				if connection != nil && botInVoiceChannel(s, i) {
+					err := connection.Disconnect()
+					if err != nil {
+						log.Println("could not disconnect:", err)
+					}
+					connection = nil
+				}
+			},
+			"skip": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+				if len(queue) == 0 {
+					_, err := s.ChannelMessageSend(i.ChannelID, "There are no tracks currently playing.")
+					if err != nil {
+						log.Println(err)
+						return
+					}
+					return
+				}
 
-		// Remove the current track from the queue
-		queue = queue[1:]
+				// Remove the current track from the queue
+				queue = queue[1:]
 
-		// Check if there are more tracks in the queue
-		if len(queue) > 0 {
-			err := stopPlayback(connection)
-			if err != nil {
-				log.Println("skip cmd:", err)
-				return
-			}
-			playTrack(s, i)
+				// Check if there are more tracks in the queue
+				if len(queue) > 0 {
+					err := stopPlayback(connection)
+					if err != nil {
+						log.Println("skip cmd:", err)
+						return
+					}
+					playTrack(s, i)
 
-			_, err = s.ChannelMessageSend(i.ChannelID, "Skipping current track and playing next one.")
-			if err != nil {
-				log.Println("Error sending message:", err)
-			}
-		} else {
-			// No more tracks in the queue, send a message indicating that
-			s.ChannelMessageSend(i.ChannelID, "There are no more tracks in the queue.")
-		}
+					_, err = s.ChannelMessageSend(i.ChannelID, "Skipping current track and playing next one.")
+					if err != nil {
+						log.Println("Error sending message:", err)
+					}
+				} else {
+					// No more tracks in the queue, send a message indicating that
+					_, err := s.ChannelMessageSend(i.ChannelID, "There are no more tracks in the queue.")
+					if err != nil {
+						log.Println(err)
+						return
+					}
+				}
 
-	},
-	"playlists": func(s *discordgo.Session, i *discordgo.InteractionCreate) {},
+			},
+			"playlists": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+
+				desc := `* [Phonk](https://music.youtube.com/playlist?list=PL9fJVbkciwbfFTQOQ8ykmKlORtfPhct0V&si=diR29jeR6JIvQ4Wr)
+		* [Lyrische Meisterwerke](https://music.youtube.com/playlist?list=PL9fJVbkciwbfxF-1Eu7UqDEsxpoZgWxF0&si=9svtyy4nG9XODAf2)
+		* [Mainly Hardstyle](https://music.youtube.com/playlist?list=PL9fJVbkciwbdKciqQUzx2XFxnaQsQfKYF&si=_HFamWDe9k9cQA2i)
+		* [Frenchcore](https://music.youtube.com/playlist?list=PL9fJVbkciwbed6rQkv00xCZ-Wy-MeEPQP&si=U2DVK4hm2dWDEy1F)
+		* [Hardtekk](https://music.youtube.com/playlist?list=PL9fJVbkciwbdzTL5UgrjMvhWGi3RT8NBV&si=qA5uJmLIXWXIo_cr)
+		* [Deutsche Tekke](https://music.youtube.com/playlist?list=PL9fJVbkciwbfOq3yEgFzWXzLusFAr199d&si=BGG7KPMbmP3zKpB7)
+		* [Banger](https://music.youtube.com/playlist?list=PL9fJVbkciwbf3VoxokMwOAr0gwSHG9b7T&si=eAypOSD_vtRCVt8v)
+		* [Techno](https://music.youtube.com/playlist?list=PL9fJVbkciwbdlb74QY7Wec27zMsRF5M41)
+		* [Hypertechno](https://music.youtube.com/playlist?list=PL9fJVbkciwbdA2XdLitadlBczKoaqaC8i&si=9VXe0MhXVoChlqWE)
+		* [Nightcore](https://music.youtube.com/playlist?list=PL9fJVbkciwbdJfUS6c7XL62qfjGzaabxS&si=tJaNr7Wr6AnIfHWk)`
+
+				user, err := s.User("@me")
+				avatarUrl := user.AvatarURL("")
+				if err != nil {
+					log.Println(err)
+					return
+				}
+
+				interactionTimestamp, err := timestamp(i.Interaction)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+
+				embed := &discordgo.MessageEmbed{
+					Title:       "Playlists",
+					Description: desc,
+					Timestamp:   interactionTimestamp,
+					Author:      &discordgo.MessageEmbedAuthor{Name: "MetalFistBot 6000", IconURL: avatarUrl},
+					Footer:      &discordgo.MessageEmbedFooter{Text: fmt.Sprint("Requested by ", i.Member.User.Username)},
+				}
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{embed}},
+				})
+			},*/
 }

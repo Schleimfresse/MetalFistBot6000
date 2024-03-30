@@ -5,7 +5,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/kkdai/youtube/v2"
 	"layeh.com/gopus"
-	"os"
+	"log"
+	"sort"
+	"strconv"
 )
 
 func botInVoiceChannel(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
@@ -21,17 +23,12 @@ func botInVoiceChannel(s *discordgo.Session, i *discordgo.InteractionCreate) boo
 	return false // Bot is not in a voice channel
 }
 
-var OnError = func(str string, err error) {
-	prefix := "dgVoice: " + str
-
-	if err != nil {
-		os.Stderr.WriteString(prefix + ": " + err.Error())
-	} else {
-		os.Stderr.WriteString(prefix)
-	}
-}
-
 func sendPCM(vc *discordgo.VoiceConnection, pcm <-chan []int16) error {
+	if pcm == nil {
+		return fmt.Errorf("PCM nil")
+	}
+
+	var err error
 	opusEncoder, err := gopus.NewEncoder(frameRate, channels, gopus.Audio)
 	if err != nil {
 		return fmt.Errorf("error creating Opus encoder: %v", err)
@@ -61,16 +58,77 @@ func sendPCM(vc *discordgo.VoiceConnection, pcm <-chan []int16) error {
 	}
 }
 
-func findBestAudioFormat(formats []youtube.Format) *youtube.Format {
+// FindBestAudioFormat finds the best audio format with the closest bitrate not higher than the target bitrate
+func findBestAudioFormat(formats []youtube.Format, targetBitrate int) *youtube.Format {
 	var bestAudio *youtube.Format
+
+	availableBitrates := getBestBitrates(formats)
+	closestBitrate := FindClosestBitrate(targetBitrate, availableBitrates)
+
+	log.Println(availableBitrates)
+
 	for _, format := range formats {
-		if format.AudioQuality != "" && format.AudioChannels > 0 {
-			if bestAudio == nil || format.AudioQuality == "high" {
-				bestAudio = &format
-			}
+		if format.Bitrate == closestBitrate {
+			bestAudio = &format
+			break
 		}
 	}
 	return bestAudio
+}
+
+func FindClosestBitrate(targetBitrate int, availableBitrates []int) int {
+	sort.Ints(availableBitrates) // Sort the available bitrates in ascending order
+
+	log.Println(targetBitrate)
+
+	closestBitrate := 0
+
+	for _, num := range availableBitrates {
+		if num < targetBitrate && num > closestBitrate {
+			closestBitrate = num
+		}
+	}
+
+	return closestBitrate
+}
+
+func getBestBitrates(formats []youtube.Format) []int {
+	var availableBitrates []int
+	log.Println(availableBitrates)
+	for _, format := range formats {
+		log.Println("ASR, AC: ", format.AudioSampleRate, format.AudioChannels)
+		audioSampleRate, _ := strconv.Atoi(format.AudioSampleRate)
+		if format.AudioChannels > 0 && audioSampleRate >= 48000 {
+			availableBitrates = append(availableBitrates, format.Bitrate)
+		}
+	}
+	if len(availableBitrates) == 0 {
+		for _, format := range formats {
+			log.Println("ASR, AC: ", format.AudioSampleRate, format.AudioChannels)
+			audioSampleRate, _ := strconv.Atoi(format.AudioSampleRate)
+			if format.AudioChannels > 2 && audioSampleRate >= 44100 {
+				availableBitrates = append(availableBitrates, format.Bitrate)
+			}
+		}
+	}
+	if len(availableBitrates) == 0 {
+		for _, format := range formats {
+			log.Println("ASR, AC: ", format.AudioSampleRate, format.AudioChannels)
+			if format.AudioChannels > 2 {
+				availableBitrates = append(availableBitrates, format.Bitrate)
+			}
+		}
+	}
+	return availableBitrates
+}
+
+func timestamp(i *discordgo.Interaction) (string, error) {
+	snowflakeTimestamp, err := discordgo.SnowflakeTimestamp(i.ID)
+	if err != nil {
+		log.Println(err)
+		return "", err
+	}
+	return snowflakeTimestamp.Format("2006-01-02T15:04:05Z"), nil
 }
 
 /*func extractAudio(input io.ReadCloser) error {

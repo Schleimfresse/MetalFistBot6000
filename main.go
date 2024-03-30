@@ -64,7 +64,13 @@ func main() {
 		registeredCommands[i] = cmd
 	}
 
-	defer dg.Close()
+	defer func(dg *discordgo.Session) {
+		err := dg.Close()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+	}(dg)
 
 	// Keep the bot running until interrupted
 	fmt.Println("Bot is now running. Press CTRL+C to exit.")
