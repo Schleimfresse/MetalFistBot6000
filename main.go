@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
+	"github.com/zmb3/spotify/v2"
 	"log"
 	"os"
 	"sync"
@@ -13,6 +14,7 @@ var (
 	TOKEN    string
 	speaking bool
 	mu       sync.Mutex
+	spClient *spotify.Client
 )
 
 func setSpeakingState(state bool) {
@@ -31,6 +33,15 @@ func main() {
 	if err := godotenv.Load("./.env"); err != nil {
 		log.Fatal("Error loading .env file", err)
 	}
+	spClient = initializeSpotifyClient()
+
+	file, err := os.OpenFile("logs.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer file.Close()
+
+	log.SetOutput(file)
 
 	TOKEN = os.Getenv("TOKEN")
 
@@ -73,6 +84,6 @@ func main() {
 	}(dg)
 
 	// Keep the bot running until interrupted
-	fmt.Println("Bot is now running. Press CTRL+C to exit.")
+	log.Println("Bot is now running. Press CTRL+C to exit.")
 	<-make(chan struct{})
 }

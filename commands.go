@@ -49,6 +49,14 @@ var (
 			Description: "pause the current played song",
 		},
 		{
+			Name:        "help",
+			Description: "gives you an help interface",
+		},
+		{
+			Name:        "logs",
+			Description: "logs out the logs from the bot",
+		},
+		{
 			Name:        "nowplaying",
 			Description: "gives detailed information of the played track",
 		},

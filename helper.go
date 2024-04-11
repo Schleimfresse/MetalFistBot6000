@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/kkdai/youtube/v2"
-	"layeh.com/gopus"
 	"log"
+	"regexp"
 	"sort"
 	"strconv"
+	"time"
 )
 
 func botInVoiceChannel(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
@@ -23,7 +24,7 @@ func botInVoiceChannel(s *discordgo.Session, i *discordgo.InteractionCreate) boo
 	return false // Bot is not in a voice channel
 }
 
-func sendPCM(vc *discordgo.VoiceConnection, pcm <-chan []int16) error {
+/*func sendPCM(vc *discordgo.VoiceConnection, pcm <-chan []int16) error {
 	if pcm == nil {
 		return fmt.Errorf("PCM nil")
 	}
@@ -56,7 +57,7 @@ func sendPCM(vc *discordgo.VoiceConnection, pcm <-chan []int16) error {
 		vc.OpusSend <- opus
 
 	}
-}
+}*/
 
 // FindBestAudioFormat finds the best audio format with the closest bitrate not higher than the target bitrate
 func findBestAudioFormat(formats []youtube.Format, targetBitrate int) *youtube.Format {
@@ -65,7 +66,7 @@ func findBestAudioFormat(formats []youtube.Format, targetBitrate int) *youtube.F
 	availableBitrates := getBestBitrates(formats)
 	closestBitrate := FindClosestBitrate(targetBitrate, availableBitrates)
 
-	log.Println(availableBitrates)
+	log.Println(availableBitrates, closestBitrate)
 
 	for _, format := range formats {
 		if format.Bitrate == closestBitrate {
@@ -73,6 +74,7 @@ func findBestAudioFormat(formats []youtube.Format, targetBitrate int) *youtube.F
 			break
 		}
 	}
+	log.Println(bestAudio)
 	return bestAudio
 }
 
@@ -83,20 +85,24 @@ func FindClosestBitrate(targetBitrate int, availableBitrates []int) int {
 
 	closestBitrate := 0
 
-	for _, num := range availableBitrates {
-		if num < targetBitrate && num > closestBitrate {
-			closestBitrate = num
+	if len(availableBitrates) == 1 {
+		return availableBitrates[0]
+	} else {
+		for _, num := range availableBitrates {
+			if num < targetBitrate && num > closestBitrate {
+				closestBitrate = num
+			}
 		}
-	}
 
-	return closestBitrate
+		return closestBitrate
+	}
 }
 
 func getBestBitrates(formats []youtube.Format) []int {
 	var availableBitrates []int
-	log.Println(availableBitrates)
+	//log.Println(availableBitrates)
 	for _, format := range formats {
-		log.Println("ASR, AC: ", format.AudioSampleRate, format.AudioChannels)
+		//	log.Println("ASR, AC: ", format.AudioSampleRate, format.AudioChannels)
 		audioSampleRate, _ := strconv.Atoi(format.AudioSampleRate)
 		if format.AudioChannels > 0 && audioSampleRate >= 48000 {
 			availableBitrates = append(availableBitrates, format.Bitrate)
@@ -104,31 +110,20 @@ func getBestBitrates(formats []youtube.Format) []int {
 	}
 	if len(availableBitrates) == 0 {
 		for _, format := range formats {
-			log.Println("ASR, AC: ", format.AudioSampleRate, format.AudioChannels)
-			audioSampleRate, _ := strconv.Atoi(format.AudioSampleRate)
-			if format.AudioChannels > 2 && audioSampleRate >= 44100 {
-				availableBitrates = append(availableBitrates, format.Bitrate)
-			}
-		}
-	}
-	if len(availableBitrates) == 0 {
-		for _, format := range formats {
-			log.Println("ASR, AC: ", format.AudioSampleRate, format.AudioChannels)
+			//		log.Println("ASR, AC: ", format.AudioSampleRate, format.AudioChannels)
 			if format.AudioChannels > 2 {
 				availableBitrates = append(availableBitrates, format.Bitrate)
 			}
 		}
 	}
+	// 3rd instance
 	return availableBitrates
 }
 
-func timestamp(i *discordgo.Interaction) (string, error) {
-	snowflakeTimestamp, err := discordgo.SnowflakeTimestamp(i.ID)
-	if err != nil {
-		log.Println(err)
-		return "", err
-	}
-	return snowflakeTimestamp.Format("2006-01-02T15:04:05Z"), nil
+func timestamp(i *discordgo.Interaction) string {
+	snowflakeTimestamp := time.Now().UTC()
+	log.Println("snowflakeTimestamp: ", snowflakeTimestamp)
+	return snowflakeTimestamp.Format("2006-01-02T15:04:05Z")
 }
 
 /*func extractAudio(input io.ReadCloser) error {
@@ -152,3 +147,30 @@ func timestamp(i *discordgo.Interaction) (string, error) {
 
 	return nil
 }*/
+
+func formatDuration(duration time.Duration) string {
+	minutes := int(duration.Minutes())
+	seconds := int(duration.Seconds()) % 60
+
+	formattedDuration := fmt.Sprintf("%02d:%02d", minutes, seconds)
+	return formattedDuration
+}
+
+func extractID(url string) string {
+	// Define the regular expression pattern to match both track and playlist IDs
+	trackPattern := regexp.MustCompile(`/track/(\w{22})`)
+	playlistPattern := regexp.MustCompile(`/playlist/(\w{22})`)
+
+	trackMatch := trackPattern.FindStringSubmatch(url)
+	if len(trackMatch) >= 2 {
+		return trackMatch[1]
+	}
+
+	// Check if the URL contains a playlist ID
+	playlistMatch := playlistPattern.FindStringSubmatch(url)
+	if len(playlistMatch) >= 2 {
+		return playlistMatch[1]
+	}
+
+	return ""
+}

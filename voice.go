@@ -2,6 +2,8 @@ package main
 
 import (
 	"MetalFistBot6000/dca"
+	"errors"
+	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/kkdai/youtube/v2"
 	"io"
@@ -9,11 +11,13 @@ import (
 )
 
 const (
-	channels  int = 2                   // 1 for mono, 2 for stereo
-	frameRate int = 48000               // audio sampling rate
+	channels int = 2 // 1 for mono, 2 for stereo
+	//frameRate int = 48000               // audio sampling rate
 	frameSize int = 960                 // uint16 size of each audio frame
 	maxBytes      = (frameSize * 2) * 2 // max size of opus data
 )
+
+var bitrate int
 
 /*func playAudio(v *discordgo.VoiceConnection, video *youtube.Video, stop <-chan bool) error {
 	/*response, err := http.Get(video)
@@ -119,30 +123,40 @@ const (
 	}
 }*/
 
-func playTrack(s *discordgo.Session, i *discordgo.InteractionCreate) {
-	playAudio(connection, queue[0], make(chan bool))
-	//log.Println("out: ", err)
-	/*if err != nil {
-		log.Println("Error thrown from playTrack: ", err)
+func playQueue(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if len(queue) == 0 {
 		return
-	} else {*/
-	queue = queue[1:]
-	if len(queue) > 0 {
-		playTrack(s, i)
 	}
-	//}
+
+	track := queue[0]
+
+	done := make(chan bool)
+	go func() {
+		playAudio(connection, track, done)
+	}()
+
+	<-done
+	defer func() {
+		if len(queue) > 0 {
+			queue = queue[1:]
+			playQueue(s, i)
+		}
+	}()
 }
 
-func playAudio(v *discordgo.VoiceConnection, track ytTrack, stop <-chan bool) {
-	log.Println("play audio")
+func playAudio(v *discordgo.VoiceConnection, track ytTrack, done chan bool) {
 	options := dca.StdEncodeOptions
 	options.BufferedFrames = 100
 	options.FrameDuration = 20
-	options.CompressionLevel = 10
+	options.CompressionLevel = 5
 	options.Bitrate = track.bitrate
-	options.Channels = 2
-	options.Application = dca.AudioApplicationAudio
-	options.PacketLoss = 0
+
+	setSpeakingState(true)
+	err := v.Speaking(true)
+	if err != nil {
+		fmt.Println("Couldn't set speaking", err)
+	}
+
 	log.Println(options.Bitrate)
 
 	client := youtube.Client{}
@@ -161,28 +175,40 @@ func playAudio(v *discordgo.VoiceConnection, track ytTrack, stop <-chan bool) {
 	defer func() {
 		encodingSession.Cleanup()
 		stream.Close()
+		setSpeakingState(false)
+		err := v.Speaking(false)
+		if err != nil {
+			fmt.Println("Couldn't set speaking", err)
+		}
+
 	}()
 
-	done := make(chan error)
-	dca.NewStream(encodingSession, v, done)
-	err = <-done
-	if err != nil && err != io.EOF {
-		log.Println(err)
-	}
-	log.Println(err)
-}
+	full := make(chan error)
+	go func() {
+		streamingSession := dca.NewStream(encodingSession, v, full)
+		for {
+			fmt.Println("FOR LOOP", playbackPositionSignal, pause)
+			select {
+			case <-playbackPositionSignal:
+				playbackPositionData <- streamingSession.PlaybackPosition()
+			case <-pause:
+				streamingSession.SetPaused(!streamingSession.Paused())
+				isPaused <- streamingSession.Paused()
+			}
+		}
+	}()
 
-func stopPlayback(v *discordgo.VoiceConnection) error {
-	// Stop speaking in the voice channel
-	err := v.Speaking(false)
-	if err != nil {
-		return err
-	}
+	select {
+	case <-skip:
+		log.Println("SKIP")
+		done <- true
+	case err := <-full:
+		log.Println("END", err)
+		if err != nil && err != io.EOF && errors.Is(err, errors.New("Voice connection closed")) {
+			log.Println(err)
+			done <- false
+		}
 
-	// Close the Opus send channel
-	if v.OpusSend != nil {
-		close(v.OpusSend)
+		done <- true
 	}
-
-	return nil
 }
