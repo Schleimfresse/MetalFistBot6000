@@ -1,7 +1,9 @@
 package main
 
 import (
+	"MetalFistBot6000/pkg/dca"
 	"bufio"
+	"errors"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/kkdai/youtube/v2"
@@ -21,11 +23,15 @@ var (
 	spPlaylistRegex        = regexp.MustCompile("^https?://open\\.spotify\\.com/playlist/[a-zA-Z0-9]*$")
 	ytVideoRegex           = regexp.MustCompile("^(https?://)?(www\\.)?(youtube\\.com|music\\.youtube\\.com)/watch.*$")
 	ytPlaylistRegex        = regexp.MustCompile("^(https?://)?(www\\.)?(youtube\\.com|music\\.youtube\\.com)/playlist.*$")
+	twitchStreamRegex      = regexp.MustCompile("https://(?:www\\.)?twitch\\.tv/([a-zA-Z0-9_]+)")
 	skip                   = make(chan struct{}, 1)
 	pause                  = make(chan struct{}, 1)
 	isPaused               = make(chan bool)
 	playbackPositionSignal = make(chan struct{}, 1)
 	playbackPositionData   = make(chan time.Duration)
+	userToKick             = "714539465468543087" // User ID to be kicked by auto-kick
+	autoKickState          bool
+	autoPingState          bool
 )
 
 const botThemeColor = 0xfcdd1c
@@ -64,6 +70,13 @@ func playHandler(s *discordgo.Session, i *discordgo.InteractionCreate, playNext 
 	}
 
 	guild, _ := s.State.Guild(i.GuildID)
+	botVoiceState, err := s.State.VoiceState(guild.ID, botID)
+	if err != nil && !errors.Is(err, discordgo.ErrStateNotFound) {
+		fmt.Println(errors.Is(err, discordgo.ErrStateNotFound))
+		log.Println("Error getting voice state", err)
+		return
+	}
+
 	for _, vs := range guild.VoiceStates {
 		if vs.UserID == i.Member.User.ID {
 			for _, channel := range guild.Channels {
@@ -77,6 +90,30 @@ func playHandler(s *discordgo.Session, i *discordgo.InteractionCreate, playNext 
 			if err != nil {
 				log.Println("Error joining vc:", err)
 				return
+			}
+
+			if botVoiceState == nil {
+				setSpeakingState(true)
+				connection.Speaking(true)
+				options := dca.StdEncodeOptions
+				options.BufferedFrames = 100
+				options.FrameDuration = 20
+				options.CompressionLevel = 5
+				file, err := os.Open("./data/announcer.mp3")
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				reader, err := dca.EncodeMem(file, options)
+				done := make(chan error)
+				dca.NewStream(reader, connection, done)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				<-done
+				connection.Speaking(false)
+				setSpeakingState(false)
 			}
 
 			videoUrl := i.ApplicationCommandData().Options[0].StringValue()
@@ -93,6 +130,9 @@ func playHandler(s *discordgo.Session, i *discordgo.InteractionCreate, playNext 
 				break
 			case spPlaylistRegex.MatchString(videoUrl):
 				requestedUnit = spotifyPlaylistHandler(videoUrl, playNext)
+				break
+			case twitchStreamRegex.MatchString(videoUrl):
+				requestedUnit = twitchHandler(videoUrl, playNext, bitrate)
 				break
 			default:
 				_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
@@ -357,45 +397,47 @@ var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.Interac
 		}
 	},
 	"nowplaying": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		playbackPositionSignal <- struct{}{}
-		user, err := s.User("@me")
-		avatarUrl := user.AvatarURL("")
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		var position = <-playbackPositionData
-		var totalTrackDuration = queue[0].duration
-		var totalTrackDurationPretty = formatDuration(totalTrackDuration)
-		var playbackPositionPretty = formatDuration(position)
-		var progressPercentage = (position.Seconds() / totalTrackDuration.Seconds()) * 100
-		var filledUnits = int(math.Round((progressPercentage / 100) * progressBarUnits))
-		var progressBar string = ""
-		for _ = range filledUnits {
-			progressBar = progressBar + "█"
-		}
-		for _ = range progressBarUnits - filledUnits {
-			progressBar = progressBar + "░"
-		}
+		if len(queue) != 0 {
+			playbackPositionSignal <- struct{}{}
+			user, err := s.User("@me")
+			avatarUrl := user.AvatarURL("")
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			var position = <-playbackPositionData
+			var totalTrackDuration = queue[0].duration
+			var totalTrackDurationPretty = formatDuration(totalTrackDuration)
+			var playbackPositionPretty = formatDuration(position)
+			var progressPercentage = (position.Seconds() / totalTrackDuration.Seconds()) * 100
+			var filledUnits = int(math.Round((progressPercentage / 100) * progressBarUnits))
+			var progressBar string = ""
+			for _ = range filledUnits {
+				progressBar = progressBar + "█"
+			}
+			for _ = range progressBarUnits - filledUnits {
+				progressBar = progressBar + "░"
+			}
 
-		embed := &discordgo.MessageEmbed{
-			Timestamp:   timestamp(i.Interaction),
-			Author:      &discordgo.MessageEmbedAuthor{Name: "MetalFistBot 6000", IconURL: avatarUrl},
-			Title:       queue[0].title,
-			Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: queue[0].thumbnail},
-			URL:         "https://music.youtube.com/watch?v=" + queue[0].Id,
-			Description: fmt.Sprint(queue[0].author, "\n", progressBar, " - ", playbackPositionPretty, " / ", totalTrackDurationPretty),
-			Footer:      &discordgo.MessageEmbedFooter{Text: fmt.Sprint("Requested by ", i.Member.User.Username)},
-			Color:       botThemeColor,
-		}
+			embed := &discordgo.MessageEmbed{
+				Timestamp:   timestamp(i.Interaction),
+				Author:      &discordgo.MessageEmbedAuthor{Name: "MetalFistBot 6000", IconURL: avatarUrl},
+				Title:       queue[0].title,
+				Thumbnail:   &discordgo.MessageEmbedThumbnail{URL: queue[0].thumbnail},
+				URL:         "https://music.youtube.com/watch?v=" + queue[0].Id,
+				Description: fmt.Sprint(queue[0].author, "\n", progressBar, " - ", playbackPositionPretty, " / ", totalTrackDurationPretty),
+				Footer:      &discordgo.MessageEmbedFooter{Text: fmt.Sprint("Requested by ", i.Member.User.Username)},
+				Color:       botThemeColor,
+			}
 
-		err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{embed}},
-		})
-		if err != nil {
-			log.Println(err)
-			return
+			err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{Embeds: []*discordgo.MessageEmbed{embed}},
+			})
+			if err != nil {
+				log.Println(err)
+				return
+			}
 		}
 	},
 	"leave": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
@@ -535,7 +577,7 @@ var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.Interac
 			return
 		}
 
-		fields := []*discordgo.MessageEmbedField{&discordgo.MessageEmbedField{Name: "/play", Value: "plays or queues a song. options: url, the URL of the song to be played"}, &discordgo.MessageEmbedField{Name: "/shuffle", Value: "randomizes the queue"}, &discordgo.MessageEmbedField{Name: "/leave", Value: "cleans the bot and disconnects it from the voice channel"}, &discordgo.MessageEmbedField{Name: "/pause", Value: "pauses the current playing song. When already paused, then the command will unpause"}, &discordgo.MessageEmbedField{Name: "/nowplaying", Value: "gives some information about the playing song"}, &discordgo.MessageEmbedField{Name: "/skip", Value: "skips the playing song and plays the next from the queue"}, &discordgo.MessageEmbedField{Name: "/queue", Value: "shows the music queue of the bot. options: page, which page of the queue you want to see"}}
+		fields := []*discordgo.MessageEmbedField{&discordgo.MessageEmbedField{Name: "/play", Value: "plays or queues a song. options: url, the URL of the song to be played"}, &discordgo.MessageEmbedField{Name: "/shuffle", Value: "randomizes the queue"}, &discordgo.MessageEmbedField{Name: "/leave", Value: "cleans the bot and disconnects it from the voice channel"}, &discordgo.MessageEmbedField{Name: "/pause", Value: "pauses the current playing song. When already paused, then the command will unpause"}, &discordgo.MessageEmbedField{Name: "/nowplaying", Value: "gives some information about the playing song"}, &discordgo.MessageEmbedField{Name: "/skip", Value: "skips the playing song and plays the next from the queue"}, &discordgo.MessageEmbedField{Name: "/queue", Value: "shows the music queue of the bot. options: page, which page of the queue you want to see"}, &discordgo.MessageEmbedField{Name: "/autoplay", Value: "when enabled, the bot will play other songs when the queue ended"}}
 		embed := &discordgo.MessageEmbed{
 			Title:     "Help",
 			Timestamp: timestamp(i.Interaction),
@@ -605,5 +647,72 @@ var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.Interac
 				return
 			}
 		}
+	},
+	"auto-ping": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		autoPingState = !autoPingState
+
+		if autoPingState {
+			if len(i.ApplicationCommandData().Options) <= 0 {
+				s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+					Type: discordgo.InteractionResponseChannelMessageWithSource,
+					Data: &discordgo.InteractionResponseData{Content: "please specify a user"},
+				})
+				return
+			}
+			user := i.ApplicationCommandData().Options[0].UserValue(s)
+
+			go pingingInstance(s, i.ChannelID, user.ID)
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{Content: "Auto-ping enabled"},
+			})
+		} else {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{Content: "Auto-ping disabled"},
+			})
+		}
+	},
+	"auto-kick": func(s *discordgo.Session, i *discordgo.InteractionCreate) {
+		autoKickState = !autoKickState
+		guild, err := s.State.Guild(i.GuildID)
+		if err != nil {
+			fmt.Println("Error retrieving guild:", err)
+			return
+		}
+
+		if autoKickState {
+			for _, vs := range guild.VoiceStates {
+				if vs.UserID == userToKick {
+					vcu, err := s.State.VoiceState(i.GuildID, i.Member.User.ID)
+					if err != nil {
+						fmt.Println("Error getting voice state:", err)
+						return
+					}
+
+					if vs.UserID == userToKick && vs.ChannelID == vcu.ChannelID {
+						err := s.GuildMemberMove(vs.GuildID, vs.UserID, nil)
+						if err != nil {
+							log.Println("Error kicking user:", err)
+						} else {
+							log.Println("Kicked user", vs.UserID, "from the voice channel")
+						}
+					}
+				}
+			}
+		}
+
+		if autoKickState {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{Content: "Auto-kick enabled"},
+			})
+		} else {
+			s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+				Type: discordgo.InteractionResponseChannelMessageWithSource,
+				Data: &discordgo.InteractionResponseData{Content: "Auto-kick disabled"},
+			})
+		}
+
 	},
 }

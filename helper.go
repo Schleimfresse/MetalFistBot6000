@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -173,4 +174,49 @@ func extractID(url string) string {
 	}
 
 	return ""
+}
+
+func getStreamerIDFromURL(url string) (string, error) {
+	// Regular expression to match the streamer ID in the Twitch URL
+	re := regexp.MustCompile(`https://(?:www\.)?twitch\.tv/([a-zA-Z0-9_]+)`)
+	matches := re.FindStringSubmatch(url)
+	if len(matches) < 2 {
+		return "", fmt.Errorf("Unable to extract streamer ID from URL")
+	}
+	return matches[1], nil
+}
+
+func onVoiceStateUpdate(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
+	if autoKickState && vs.ChannelID != "" && vs.UserID != "" {
+		if vs.ChannelID != "" {
+			if vs.UserID == userToKick {
+				err := s.GuildMemberMove(vs.GuildID, vs.UserID, nil)
+				if err != nil {
+					log.Println("Error kicking user:", err)
+				} else {
+					log.Println("Kicked user", vs.Member.User.Username, "from the voice channel")
+				}
+			}
+		}
+	}
+}
+
+func pingingInstance(s *discordgo.Session, channelID string, userToPing string) {
+	for autoPingState {
+		s.ChannelMessageSend(channelID, strings.Repeat("<@!"+userToPing+">", 9))
+
+		time.Sleep(time.Second)
+	}
+}
+
+func setSpeakingState(state bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	speaking = state
+}
+
+func getSpeakingState() bool {
+	mu.Lock()
+	defer mu.Unlock()
+	return speaking
 }

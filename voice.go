@@ -1,13 +1,17 @@
 package main
 
 import (
-	"MetalFistBot6000/dca"
+	"MetalFistBot6000/pkg/dca"
+	"MetalFistBot6000/pkg/streamlink"
 	"errors"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/kkdai/youtube/v2"
 	"io"
 	"log"
+	"net/http"
+	"os"
+	"strings"
 )
 
 const (
@@ -125,6 +129,23 @@ var bitrate int
 
 func playQueue(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	if len(queue) == 0 {
+		file, err := os.Open("./data/queue_end.mp3")
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		reader, err := dca.EncodeMem(file, dca.StdEncodeOptions)
+		done := make(chan error)
+		dca.NewStream(reader, connection, done)
+
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		<-done
+		setSpeakingState(false)
+		reader.Cleanup()
+
 		return
 	}
 
@@ -145,19 +166,41 @@ func playQueue(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 func playAudio(v *discordgo.VoiceConnection, track ytTrack, done chan bool) {
-	options := dca.StdEncodeOptions
-	options.BufferedFrames = 100
-	options.FrameDuration = 20
-	options.CompressionLevel = 5
-	options.Bitrate = track.bitrate
-
 	setSpeakingState(true)
 	err := v.Speaking(true)
 	if err != nil {
 		fmt.Println("Couldn't set speaking", err)
 	}
 
-	log.Println(options.Bitrate)
+	// Announcer
+
+	key := os.Getenv("ELEVEN_LABS")
+	url := "https://api.elevenlabs.io/v1/text-to-speech/nPczCjzI2devNBz1zQrb?optimize_streaming_latency=0&output_format=mp3_44100_128"
+
+	payload := strings.NewReader("{\n  \"text\": \"Now playing: " + track.title + "\",\n  \"voice_settings\": {\n    \"similarity_boost\": 0.75,\n    \"stability\": 0.5,\n    \"use_speaker_boost\": true  }\n}")
+
+	req, err := http.NewRequest("POST", url, payload)
+	req.Header.Add("xi-api-key", key)
+	req.Header.Add("Content-Type", "application/json")
+
+	res, _ := http.DefaultClient.Do(req)
+
+	reader, err := dca.EncodeMem(res.Body, dca.StdEncodeOptions)
+	end := make(chan error)
+	dca.NewStream(reader, connection, end)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	<-end
+
+	//////////////////////////////////////////////////////////////////////////
+
+	options := dca.StdEncodeOptions
+	options.BufferedFrames = 100
+	options.FrameDuration = 20
+	options.CompressionLevel = 5
+	options.Bitrate = track.bitrate
 
 	client := youtube.Client{}
 	stream, i2, err := client.GetStream(track.video, track.format)
@@ -175,12 +218,6 @@ func playAudio(v *discordgo.VoiceConnection, track ytTrack, done chan bool) {
 	defer func() {
 		encodingSession.Cleanup()
 		stream.Close()
-		setSpeakingState(false)
-		err := v.Speaking(false)
-		if err != nil {
-			fmt.Println("Couldn't set speaking", err)
-		}
-
 	}()
 
 	full := make(chan error)
@@ -210,5 +247,59 @@ func playAudio(v *discordgo.VoiceConnection, track ytTrack, done chan bool) {
 		}
 
 		done <- true
+	}
+}
+
+func playLiveStream(v *discordgo.VoiceConnection, url string) {
+	client, err := streamlink.New()
+	if err != nil {
+		log.Fatalf("Error creating streamlink client: %v", err)
+	}
+
+	streamer, err := getStreamerIDFromURL(url)
+
+	streamUrl, err := client.Run(streamer)
+
+	setSpeakingState(true)
+	err = v.Speaking(true)
+	if err != nil {
+		fmt.Println("Couldn't set speaking", err)
+	}
+
+	options := dca.StdEncodeOptions
+	options.BufferedFrames = 100
+	//options.Bitrate = queue[0].bitrate
+	options.FrameDuration = 20
+	options.CompressionLevel = 5
+
+	encodingSession, err := dca.EncodeFile(string(streamUrl), options)
+
+	defer func() {
+		encodingSession.Cleanup()
+		//stdout.Close()
+		setSpeakingState(false)
+		err := v.Speaking(false)
+		if err != nil {
+			fmt.Println("Couldn't set speaking", err)
+		}
+		log.Println("playLiveStream: function ended")
+	}()
+
+	log.Println("isSpeaking:", getSpeakingState())
+
+	full := make(chan error)
+	go func() {
+		dca.NewStream(encodingSession, v, full)
+	}()
+
+	select {
+	case <-skip:
+		log.Println("SKIP")
+
+	case err := <-full:
+		log.Println("END", err)
+		if err != nil && err != io.EOF && !errors.Is(err, errors.New("Voice connection closed")) {
+			log.Println(err)
+		}
 	}
 }

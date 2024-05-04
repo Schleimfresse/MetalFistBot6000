@@ -76,5 +76,21 @@ var (
 			Name:        "playlists",
 			Description: "Gives you the playlist list",
 		},
+		{
+			Name:        "auto-kick",
+			Description: "have some fun",
+		},
+		{
+			Name:        "auto-ping",
+			Description: "have some fun",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionUser,
+					Name:        "user",
+					Description: "select the user which should get pinged",
+					Required:    false,
+				},
+			},
+		},
 	}
 )

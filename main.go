@@ -17,17 +17,7 @@ var (
 	spClient *spotify.Client
 )
 
-func setSpeakingState(state bool) {
-	mu.Lock()
-	defer mu.Unlock()
-	speaking = state
-}
-
-func getSpeakingState() bool {
-	mu.Lock()
-	defer mu.Unlock()
-	return speaking
-}
+const botID = "1217124671250497608"
 
 func main() {
 	if err := godotenv.Load("./.env"); err != nil {
@@ -63,8 +53,10 @@ func main() {
 	})
 	err = dg.Open()
 	if err != nil {
-		log.Fatalf("Cannot open the session: %v", err)
+		log.Fatalf("Cannot++ open the session: %v", err)
 	}
+
+	dg.AddHandler(onVoiceStateUpdate)
 
 	registeredCommands := make([]*discordgo.ApplicationCommand, len(commands))
 	for i, v := range commands {
