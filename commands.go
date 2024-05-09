@@ -37,7 +37,7 @@ var (
 			Description: "take a look at the queue",
 			Options: []*discordgo.ApplicationCommandOption{
 				{
-					Type:        discordgo.ApplicationCommandOptionString,
+					Type:        discordgo.ApplicationCommandOptionInteger,
 					Name:        "page",
 					Description: "page of the queue",
 					Required:    false,
@@ -91,6 +91,44 @@ var (
 					Required:    false,
 				},
 			},
+		},
+		{
+			Name:        "quote-add",
+			Description: "add a quote",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "name",
+					Description: "short name for the quote",
+					Required:    true,
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "quote",
+					Description: "the quote which should get added",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:        "quote-remove",
+			Description: "remove a quote",
+			Options: []*discordgo.ApplicationCommandOption{
+				{
+					Type:        discordgo.ApplicationCommandOptionString,
+					Name:        "name",
+					Description: "short name of the quote which should get removed",
+					Required:    true,
+				},
+			},
+		},
+		{
+			Name:        "quote",
+			Description: "get a random quote",
+		},
+		{
+			Name:        "quote-list",
+			Description: "list of all quotes",
 		},
 	}
 )

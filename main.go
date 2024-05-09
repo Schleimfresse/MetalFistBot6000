@@ -18,6 +18,16 @@ var (
 )
 
 const botID = "1217124671250497608"
+const botOwnerID = "532546678981394442"
+const userToKick = "610813797027938315" // User ID to be kicked by auto-kick
+const botThemeColor = 0xfcdd1c
+const progressBarUnits = 20
+
+type config struct {
+	DbUser     string `json:"db_user"`
+	DbPassword string `json:"db_password"`
+	DbName     string `json:"db_name"`
+}
 
 func main() {
 	if err := godotenv.Load("./.env"); err != nil {
@@ -29,7 +39,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer file.Close()
+
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			log.Println(err)
+		}
+	}(file)
 
 	log.SetOutput(file)
 
@@ -42,9 +58,14 @@ func main() {
 		return
 	}
 
+	dg.AddHandler(onVoiceStateUpdate)
+	dg.AddHandler(interactionCreate)
+
 	dg.AddHandler(func(s *discordgo.Session, i *discordgo.InteractionCreate) {
-		if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
-			h(s, i)
+		if i.Type == discordgo.InteractionApplicationCommand {
+			if h, ok := commandHandlers[i.ApplicationCommandData().Name]; ok {
+				h(s, i)
+			}
 		}
 	})
 
@@ -53,10 +74,8 @@ func main() {
 	})
 	err = dg.Open()
 	if err != nil {
-		log.Fatalf("Cannot++ open the session: %v", err)
+		log.Fatalf("Cannot open the session: %v", err)
 	}
-
-	dg.AddHandler(onVoiceStateUpdate)
 
 	registeredCommands := make([]*discordgo.ApplicationCommand, len(commands))
 	for i, v := range commands {
@@ -75,7 +94,6 @@ func main() {
 		}
 	}(dg)
 
-	// Keep the bot running until interrupted
 	log.Println("Bot is now running. Press CTRL+C to exit.")
 	<-make(chan struct{})
 }

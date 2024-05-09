@@ -5,6 +5,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/kkdai/youtube/v2"
 	"log"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -75,6 +76,11 @@ func findBestAudioFormat(formats []youtube.Format, targetBitrate int) *youtube.F
 			break
 		}
 	}
+
+	if bestAudio == nil {
+		fmt.Println(formats)
+	}
+
 	log.Println(bestAudio)
 	return bestAudio
 }
@@ -95,13 +101,17 @@ func FindClosestBitrate(targetBitrate int, availableBitrates []int) int {
 			}
 		}
 
+		if closestBitrate == 0 {
+			fmt.Println(availableBitrates, len(availableBitrates), closestBitrate)
+			closestBitrate = availableBitrates[0]
+		}
+
 		return closestBitrate
 	}
 }
 
 func getBestBitrates(formats []youtube.Format) []int {
 	var availableBitrates []int
-	//log.Println(availableBitrates)
 	for _, format := range formats {
 		//	log.Println("ASR, AC: ", format.AudioSampleRate, format.AudioChannels)
 		audioSampleRate, _ := strconv.Atoi(format.AudioSampleRate)
@@ -112,10 +122,13 @@ func getBestBitrates(formats []youtube.Format) []int {
 	if len(availableBitrates) == 0 {
 		for _, format := range formats {
 			//		log.Println("ASR, AC: ", format.AudioSampleRate, format.AudioChannels)
-			if format.AudioChannels > 2 {
+			if format.AudioChannels > 0 {
 				availableBitrates = append(availableBitrates, format.Bitrate)
 			}
 		}
+	}
+	if len(availableBitrates) == 0 {
+		fmt.Println(formats)
 	}
 	// 3rd instance
 	return availableBitrates
@@ -186,24 +199,13 @@ func getStreamerIDFromURL(url string) (string, error) {
 	return matches[1], nil
 }
 
-func onVoiceStateUpdate(s *discordgo.Session, vs *discordgo.VoiceStateUpdate) {
-	if autoKickState && vs.ChannelID != "" && vs.UserID != "" {
-		if vs.ChannelID != "" {
-			if vs.UserID == userToKick {
-				err := s.GuildMemberMove(vs.GuildID, vs.UserID, nil)
-				if err != nil {
-					log.Println("Error kicking user:", err)
-				} else {
-					log.Println("Kicked user", vs.Member.User.Username, "from the voice channel")
-				}
-			}
-		}
-	}
-}
-
 func pingingInstance(s *discordgo.Session, channelID string, userToPing string) {
 	for autoPingState {
-		s.ChannelMessageSend(channelID, strings.Repeat("<@!"+userToPing+">", 9))
+		_, err := s.ChannelMessageSend(channelID, strings.Repeat("<@!"+userToPing+">", 9))
+		if err != nil {
+			log.Println(err)
+			return
+		}
 
 		time.Sleep(time.Second)
 	}
@@ -219,4 +221,69 @@ func getSpeakingState() bool {
 	mu.Lock()
 	defer mu.Unlock()
 	return speaking
+}
+
+func readLastLines() (string, error) {
+	const maxChars = 4096
+	const fileName = "logs.log"
+
+	file, err := os.Open(fileName)
+	if err != nil {
+		return "", err
+	}
+	defer func(file *os.File) {
+		err := file.Close()
+		if err != nil {
+			log.Println(err)
+		}
+	}(file)
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+
+	size := fileInfo.Size()
+	if size == 0 {
+		return "", nil // File is empty
+	}
+
+	var lastLines []byte
+	readSize := 0
+	for {
+		offset := int64(-readSize - 1)
+		if offset < -size {
+			offset = -size
+		}
+
+		_, err = file.Seek(offset, 2)
+		if err != nil {
+			return "", err
+		}
+
+		buf := make([]byte, 1)
+		_, err = file.Read(buf)
+		if err != nil {
+			return "", err
+		}
+
+		lastLines = append(buf, lastLines...)
+		readSize++
+
+		if readSize >= maxChars || offset == -size {
+			break
+		}
+	}
+
+	return string(lastLines), nil
+}
+
+func totalPages(queue []ytTrack) int {
+	totalEntries := len(queue)
+	entries := 10
+	pages := totalEntries / entries
+	if totalEntries%entries != 0 {
+		pages++
+	}
+	return pages
 }

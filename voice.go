@@ -217,7 +217,10 @@ func playAudio(v *discordgo.VoiceConnection, track ytTrack, done chan bool) {
 
 	defer func() {
 		encodingSession.Cleanup()
-		stream.Close()
+		err := stream.Close()
+		if err != nil {
+			log.Println(err)
+		}
 	}()
 
 	full := make(chan error)
