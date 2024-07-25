@@ -4,14 +4,14 @@ import (
 	"context"
 	"google.golang.org/api/option"
 	"google.golang.org/api/youtube/v3"
-	"log"
+	"os"
 )
 
 func searchYouTube(query string) (*youtube.SearchResult, error) {
 	ctx := context.Background()
-
+	apiKey := os.Getenv("YOUTUBE_API_KEY")
 	// Create a new YouTube service
-	service, err := youtube.NewService(ctx, option.WithAPIKey("AIzaSyAqEwTxJ1a9ckZZaUGnKPXlifDZ6qgbQbc"))
+	service, err := youtube.NewService(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
 		return nil, err
 	}
@@ -22,8 +22,6 @@ func searchYouTube(query string) (*youtube.SearchResult, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	log.Println(response.Items[0].Id)
 
 	return response.Items[0], nil
 }

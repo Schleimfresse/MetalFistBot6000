@@ -20,7 +20,7 @@ var (
 	queue                  []ytTrack
 	connection             *discordgo.VoiceConnection
 	spTrackRegex           = regexp.MustCompile("^https?://open\\.spotify\\.com/(?:intl-[a-z]{2}/)?track/[a-zA-Z0-9]*$")
-	spPlaylistRegex        = regexp.MustCompile("^https?://open\\.spotify\\.com/playlist/[a-zA-Z0-9]*$")
+	spPlaylistRegex        = regexp.MustCompile("(?:https:\\/\\/)?open\\.spotify\\.com\\/playlist\\/([a-zA-Z0-9]+)(?:\\?si=([a-zA-Z0-9]*))?")
 	ytVideoRegex           = regexp.MustCompile("^(https?://)?(www\\.)?(youtube\\.com|music\\.youtube\\.com)/watch.*$")
 	ytPlaylistRegex        = regexp.MustCompile("^(https?://)?(www\\.)?(youtube\\.com|music\\.youtube\\.com)/playlist.*$")
 	twitchStreamRegex      = regexp.MustCompile("https://(?:www\\.)?twitch\\.tv/([a-zA-Z0-9_]+)")
@@ -131,6 +131,7 @@ func playHandler(s *discordgo.Session, i *discordgo.InteractionCreate, playNext 
 			if i.Type == discordgo.InteractionMessageComponent {
 				videoUrl = i.MessageComponentData().Values[0]
 			}
+
 			switch {
 			case ytVideoRegex.MatchString(videoUrl):
 				requestedUnit = addTrack(videoUrl, playNext)
@@ -483,10 +484,10 @@ var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.Interac
 			var progressPercentage = (position.Seconds() / totalTrackDuration.Seconds()) * 100
 			var filledUnits = int(math.Round((progressPercentage / 100) * progressBarUnits))
 			var progressBar string = ""
-			for _ = range filledUnits {
+			for range filledUnits {
 				progressBar = progressBar + "█"
 			}
-			for _ = range progressBarUnits - filledUnits {
+			for range progressBarUnits - filledUnits {
 				progressBar = progressBar + "░"
 			}
 
@@ -641,52 +642,52 @@ var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.Interac
 		minSelect := 1
 		menu := discordgo.SelectMenu{MinValues: &minSelect, MaxValues: 1,
 			Options: []discordgo.SelectMenuOption{
-				discordgo.SelectMenuOption{
+				{
 					Label: "Phonk",
 					Value: "https://music.youtube.com/playlist?list=PL9fJVbkciwbfFTQOQ8ykmKlORtfPhct0V&si=diR29jeR6JIvQ4Wr",
 					Emoji: discordgo.ComponentEmoji{Name: ":queue_music_24dp_FILL0_wght400_G:", ID: "1237400059335802961"},
 				},
-				discordgo.SelectMenuOption{
+				{
 					Label: "Lyrische Meisterwerke",
 					Value: "https://music.youtube.com/playlist?list=PL9fJVbkciwbfxF-1Eu7UqDEsxpoZgWxF0&si=9svtyy4nG9XODAf2",
 					Emoji: discordgo.ComponentEmoji{Name: ":queue_music_24dp_FILL0_wght400_G:", ID: "1237400059335802961"},
 				},
-				discordgo.SelectMenuOption{
+				{
 					Label: "Mainly Hardstyle",
 					Value: "https://music.youtube.com/playlist?list=PL9fJVbkciwbdKciqQUzx2XFxnaQsQfKYF&si=_HFamWDe9k9cQA2i",
 					Emoji: discordgo.ComponentEmoji{Name: ":queue_music_24dp_FILL0_wght400_G:", ID: "1237400059335802961"},
 				},
-				discordgo.SelectMenuOption{
+				{
 					Label: "Frenchcore",
 					Value: "https://music.youtube.com/playlist?list=PL9fJVbkciwbed6rQkv00xCZ-Wy-MeEPQP&si=U2DVK4hm2dWDEy1F",
 					Emoji: discordgo.ComponentEmoji{Name: ":queue_music_24dp_FILL0_wght400_G:", ID: "1237400059335802961"},
 				},
-				discordgo.SelectMenuOption{
+				{
 					Label: "Hardtekk",
 					Value: "https://music.youtube.com/playlist?list=PL9fJVbkciwbdzTL5UgrjMvhWGi3RT8NBV&si=qA5uJmLIXWXIo_cr",
 					Emoji: discordgo.ComponentEmoji{Name: ":queue_music_24dp_FILL0_wght400_G:", ID: "1237400059335802961"},
 				},
-				discordgo.SelectMenuOption{
+				{
 					Label: "Deutsche Tekke",
 					Value: "https://music.youtube.com/playlist?list=PL9fJVbkciwbfOq3yEgFzWXzLusFAr199d&si=BGG7KPMbmP3zKpB7",
 					Emoji: discordgo.ComponentEmoji{Name: ":queue_music_24dp_FILL0_wght400_G:", ID: "1237400059335802961"},
 				},
-				discordgo.SelectMenuOption{
+				{
 					Label: "Banger",
 					Value: "https://music.youtube.com/playlist?list=PL9fJVbkciwbf3VoxokMwOAr0gwSHG9b7T&si=eAypOSD_vtRCVt8v",
 					Emoji: discordgo.ComponentEmoji{Name: ":queue_music_24dp_FILL0_wght400_G:", ID: "1237400059335802961"},
 				},
-				discordgo.SelectMenuOption{
+				{
 					Label: "Techno",
 					Value: "https://music.youtube.com/playlist?list=PL9fJVbkciwbdlb74QY7Wec27zMsRF5M41",
 					Emoji: discordgo.ComponentEmoji{Name: ":queue_music_24dp_FILL0_wght400_G:", ID: "1237400059335802961"},
 				},
-				discordgo.SelectMenuOption{
+				{
 					Label: "Hypertechno",
 					Value: "https://music.youtube.com/playlist?list=PL9fJVbkciwbdA2XdLitadlBczKoaqaC8i&si=9VXe0MhXVoChlqWE",
 					Emoji: discordgo.ComponentEmoji{Name: ":queue_music_24dp_FILL0_wght400_G:", ID: "1237400059335802961"},
 				},
-				discordgo.SelectMenuOption{
+				{
 					Label: "Nightcore",
 					Value: "https://music.youtube.com/playlist?list=PL9fJVbkciwbdJfUS6c7XL62qfjGzaabxS&si=tJaNr7Wr6AnIfHWk",
 					Emoji: discordgo.ComponentEmoji{Name: ":queue_music_24dp_FILL0_wght400_G:", ID: "1237400059335802961"},
@@ -714,7 +715,7 @@ var commandHandlers = map[string]func(s *discordgo.Session, i *discordgo.Interac
 			return
 		}
 
-		fields := []*discordgo.MessageEmbedField{&discordgo.MessageEmbedField{Name: "/play", Value: "plays or queues a song. options: url, the URL of the song to be played"}, &discordgo.MessageEmbedField{Name: "/shuffle", Value: "randomizes the queue"}, &discordgo.MessageEmbedField{Name: "/leave", Value: "cleans the bot and disconnects it from the voice channel"}, &discordgo.MessageEmbedField{Name: "/pause", Value: "pauses the current playing song. When already paused, then the command will unpause"}, &discordgo.MessageEmbedField{Name: "/nowplaying", Value: "gives some information about the playing song"}, &discordgo.MessageEmbedField{Name: "/skip", Value: "skips the playing song and plays the next from the queue"}, &discordgo.MessageEmbedField{Name: "/queue", Value: "shows the music queue of the bot. options: page, which page of the queue you want to see"}, &discordgo.MessageEmbedField{Name: "/autoplay", Value: "when enabled, the bot will play other songs when the queue ended"}}
+		fields := []*discordgo.MessageEmbedField{{Name: "/play", Value: "plays or queues a song. options: url, the URL of the song to be played"}, {Name: "/shuffle", Value: "randomizes the queue"}, {Name: "/leave", Value: "cleans the bot and disconnects it from the voice channel"}, {Name: "/pause", Value: "pauses the current playing song. When already paused, then the command will unpause"}, {Name: "/nowplaying", Value: "gives some information about the playing song"}, {Name: "/skip", Value: "skips the playing song and plays the next from the queue"}, {Name: "/queue", Value: "shows the music queue of the bot. options: page, which page of the queue you want to see"}, {Name: "/autoplay", Value: "when enabled, the bot will play other songs when the queue ended"}}
 		embed := &discordgo.MessageEmbed{
 			Title:     "Help",
 			Timestamp: timestamp(i.Interaction),
