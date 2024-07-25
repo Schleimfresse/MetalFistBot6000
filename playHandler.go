@@ -148,11 +148,13 @@ func spotifyPlaylistHandler(url string, playNext bool) string {
 	go func() {
 		var results []string
 
-		for _, track := range playlist {
+		for i, track := range playlist {
 			searchResult, err := searchYouTube(track)
+
 			if err != nil {
 				log.Println(err)
 			} else {
+				log.Printf("%v | %v/%v", searchResult.Id, i+1, len(playlist))
 				results = append(results, fmt.Sprint("https://music.youtube.com/watch?v=", searchResult.Id))
 			}
 		}

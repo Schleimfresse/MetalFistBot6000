@@ -99,7 +99,7 @@ var (
 				{
 					Type:        discordgo.ApplicationCommandOptionString,
 					Name:        "name",
-					Description: "short name for the quote",
+					Description: "name of the author of the quote",
 					Required:    true,
 				},
 				{

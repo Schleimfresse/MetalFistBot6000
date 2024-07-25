@@ -33,6 +33,7 @@ func main() {
 	if err := godotenv.Load("./.env"); err != nil {
 		log.Fatal("Error loading .env file", err)
 	}
+	go webserver()
 	spClient = initializeSpotifyClient()
 
 	file, err := os.OpenFile("logs.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
